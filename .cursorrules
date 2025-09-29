@@ -1,0 +1,28 @@
+# LogBid Landing Page Rules
+
+## UI Components Styling Rules
+
+### Input Components
+- Always use explicit Tailwind classes instead of CSS variables
+- Input styling: `border-gray-300 bg-white text-gray-900 placeholder:text-gray-500`
+- Focus states: `focus:ring-blue-500 focus:border-blue-500`
+- Never use: `border-input`, `bg-background`, `text-muted-foreground`
+
+### Select Components  
+- Trigger: `border-gray-300 bg-white text-gray-900`
+- Content: `border-gray-200 bg-white text-gray-900`
+- Items: `text-gray-900 focus:bg-blue-50 focus:text-blue-900`
+- Never use: `bg-popover`, `text-popover-foreground`, `focus:bg-accent`
+
+### Checkbox Components
+- Default: `border-gray-300 bg-white`
+- Checked: `data-[state=checked]:bg-blue-600 data-[state=checked]:text-white`
+- Focus: `focus-visible:ring-blue-500`
+- Never use: `border-primary`, `bg-primary`, `ring-ring`
+
+### General Rules
+- Always use concrete Tailwind color classes (gray-300, blue-500, etc.)
+- Avoid CSS custom properties in component libraries
+- Maintain consistent blue accent color (#1e3a8a) across components
+- Use white backgrounds for form elements
+- Ensure high contrast for accessibility
