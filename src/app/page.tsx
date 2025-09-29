@@ -279,7 +279,6 @@ export default function HomePage() {
                 <li><Link href="/soporte" className="hover:text-white transition-colors">{t('nav.support')}</Link></li>
                 <li><Link href="/soporte" className="hover:text-white transition-colors">{t('footer.contact')}</Link></li>
                 <li><Link href="/soporte" className="hover:text-white transition-colors">{t('footer.blog')}</Link></li>
-                <li><Link href="/soporte" className="hover:text-white transition-colors">{t('footer.careers')}</Link></li>
               </ul>
             </div>
 
