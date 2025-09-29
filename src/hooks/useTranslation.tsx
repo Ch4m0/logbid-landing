@@ -237,7 +237,8 @@ const translations = {
       certifiedBy: "Certified by:",
       zimPartnership: "ZIM Partnership",
       fmcRegistered: "FMC Registered", 
-      iataCertified: "IATA Certified"
+      iataCertified: "IATA Certified",
+      allRights: "All rights reserved."
     },
     // Keys used in importer register page
     businessFlow: {
@@ -626,7 +627,8 @@ const translations = {
       certifiedBy: "Certificado por:",
       zimPartnership: "ZIM Partnership",
       fmcRegistered: "FMC Registered",
-      iataCertified: "IATA Certified"
+      iataCertified: "IATA Certified",
+      allRights: "Todos los derechos reservados."
     },
     // Keys used in importer register page
     businessFlow: {
