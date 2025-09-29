@@ -294,7 +294,7 @@ export default function HomePage() {
           </div>
 
           <div className="border-t border-gray-800 mt-12 pt-8 text-center text-gray-400">
-            <p>&copy; 2025 LogBid. {t('footer.allRights')}</p>
+            <p>&copy; 2025 pre LogBid. {t('footer.allRights')}</p>
           </div>
         </div>
       </footer>
