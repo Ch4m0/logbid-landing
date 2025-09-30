@@ -517,14 +517,6 @@ export default function RegisterImporterPage() {
             ? formData.companyName 
             : companies.find(c => c.id.toString() === formData.companyId)?.name
 
-          console.log('📤 Llamando a sendWelcomeEmail con datos:', {
-            email: formData.email,
-            full_name: formData.fullName,
-            role: formData.role,
-            language: formData.language,
-            company_name: companyName
-          })
-
           const emailResult = await sendWelcomeEmail({
             email: formData.email,
             full_name: formData.fullName,
@@ -540,11 +532,11 @@ export default function RegisterImporterPage() {
         }
         
         alert(`¡Bienvenido! Tu cuenta ha sido creada exitosamente. ${formData.email ? 'Revisa tu email para más información.' : ''}`)
-        router.push('https://app.logbid.co/auth')
+        router.push(`${process.env.NEXT_PUBLIC_APP_URL}/auth`)
       } catch (autoLoginError) {
         console.error('💥 Auto-login catch error:', autoLoginError)
         alert(`Usuario creado exitosamente, pero hubo un error inesperado al iniciar sesión automáticamente. Por favor inicia sesión manualmente.`)
-        router.push('/auth')
+        router.push(`${process.env.NEXT_PUBLIC_APP_URL}/auth`)
         return
       }
 
