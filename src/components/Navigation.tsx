@@ -91,7 +91,7 @@ export default function Navigation() {
                 
                 <Button className={`px-6 py-2 rounded-md font-medium transition-all ${
                   showScrolledStyles ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-white hover:bg-gray-100 text-blue-900'
-                }`} onClick={() => window.location.href = 'https://app.logbid.co/auth'}>
+                }`} onClick={() => window.location.href = `${process.env.NEXT_PUBLIC_APP_URL}/auth`}>
                     {t('nav.login')}
                   </Button>
               </div>
@@ -102,7 +102,7 @@ export default function Navigation() {
               <Button
                 size="sm"
                 className={showScrolledStyles ? 'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-base font-medium rounded-md mr-2' : 'bg-white hover:bg-gray-100 text-blue-900 px-4 py-2 text-base font-medium rounded-md mr-2'}
-                onClick={() => { setIsMenuOpen(false); window.location.href = 'https://app.logbid.co/auth'; }}
+                onClick={() => { setIsMenuOpen(false); window.location.href = `${process.env.NEXT_PUBLIC_APP_URL}/auth`; }}
               >
                 {t('nav.login')}
               </Button>
