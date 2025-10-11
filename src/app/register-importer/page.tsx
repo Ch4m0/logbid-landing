@@ -11,7 +11,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useSendWelcomeEmail } from '@/hooks/useSendWelcomeEmail'
 import { useTranslation } from '@/hooks/useTranslation'
 import { createSupabaseClient } from '@/utils/supabase/client'
 import {
@@ -26,7 +25,6 @@ import {
   Eye,
   FileCheck,
   Globe,
-  Lock,
   Package,
   ShieldCheck,
   Star,
@@ -36,7 +34,6 @@ import {
   Zap
 } from 'lucide-react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 
 interface Company {
@@ -53,8 +50,6 @@ interface FormData {
   fullName: string
   email: string
   phone: string
-  password: string
-  confirmPassword: string
   role: string
   language: string
   companyName: string
@@ -64,7 +59,6 @@ interface FormData {
 
 export default function RegisterImporterPage() {
   const { t } = useTranslation()
-  const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [companies, setCompanies] = useState<Company[]>([])
@@ -73,14 +67,11 @@ export default function RegisterImporterPage() {
   const [isCreatingNewCompany, setIsCreatingNewCompany] = useState(false)
   const [currentStep, setCurrentStep] = useState<number>(1)
   const [clientDocumentFiles, setClientDocumentFiles] = useState<{[key: string]: File | null}>({})
-  const { sendWelcomeEmail } = useSendWelcomeEmail()
 
   const [formData, setFormData] = useState<FormData>({
     fullName: '',
     email: '',
     phone: '',
-    password: '',
-    confirmPassword: '',
     role: 'customer', // Fixed role for importer registration
     language: 'es',
     companyName: '',
@@ -155,14 +146,6 @@ export default function RegisterImporterPage() {
       setError('El teléfono es requerido')
       return false
     }
-    if (!formData.password.trim()) {
-      setError('La contraseña es requerida')
-      return false
-    }
-    if (formData.password !== formData.confirmPassword) {
-      setError('Las contraseñas no coinciden')
-      return false
-    }
     if (selectedMarkets.length === 0) {
       setError('Debes seleccionar al menos un mercado')
       return false
@@ -220,16 +203,6 @@ export default function RegisterImporterPage() {
     }
 
     try {
-      if (formData.password !== formData.confirmPassword) {
-        setError('Las contraseñas no coinciden')
-        return
-      }
-
-      if (formData.password.length < 6) {
-        setError('La contraseña debe tener al menos 6 caracteres')
-        return
-      }
-
       if (!formData.role) {
         setError('Debe seleccionar un rol')
         return
@@ -242,303 +215,151 @@ export default function RegisterImporterPage() {
 
       const supabase = createSupabaseClient()
 
-      // Verificar si el email ya existe
-      const { data: existingProfiles, error: checkError } = await supabase
-        .from('profiles')
-        .select('email, created_at')
-        .eq('email', formData.email)
+      // Verificar si ya existe un registro pendiente con este email
+      const { data: existingPending, error: pendingCheckError } = await supabase
+        .from('pending_registrations')
+        .select('email, status, created_at')
+        .eq('email', formData.email.trim().toLowerCase())
 
-      console.log('Email check result:', { 
-        existingProfiles, 
-        checkError, 
-        count: existingProfiles?.length || 0 
-      })
-
-      if (checkError) {
-        setError('Error al verificar el email. Por favor intenta nuevamente.')
-        return
-      } 
-      
-      if (existingProfiles && existingProfiles.length > 0) {
-        setError(`Este email ya está registrado (desde ${existingProfiles[0].created_at}). Por favor usa un email diferente.`)
+      if (pendingCheckError) {
+        setError('Error al verificar registros existentes. Por favor intenta nuevamente.')
         return
       }
 
-      // Verificar si el teléfono ya existe (solo si se proporcionó un teléfono)
-      if (formData.phone && formData.phone.trim()) {
-        const { data: existingPhones, error: phoneCheckError } = await supabase
-          .from('profiles')
-          .select('email, phone')
-          .eq('phone', formData.phone.trim())
-        
-        if (phoneCheckError) {
-          console.error('❌ Error checking existing phone:', phoneCheckError)
-          setError('Error al verificar el teléfono. Por favor intenta nuevamente.')
-          return
-        }
-        
-        if (existingPhones && existingPhones.length > 0) {
-          console.log('❌ Phone already exists:', existingPhones[0])
-          setError(`Este número de teléfono (${formData.phone}) ya está registrado en el sistema. Por favor usa un número diferente.`)
-          return
-        }
-      }
-
-      // Intentar registrar con teléfono, pero si falla por duplicado, registrar sin teléfono en campo principal
-      const signUpData: {
-        email: string;
-        password: string;
-        phone?: string;
-        options: {
-          emailRedirectTo: string;
-          data: {
-            confirm: boolean;
-            full_name: string;
-            phone: string;
-          };
-        };
-      } = {
-        email: formData.email,
-        password: formData.password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth`,
-          // Deshabilitar email de confirmación para testing
-          data: {
-            confirm: false,
-            full_name: formData.fullName,
-            phone: formData.phone
-          }
-        }
-      }
-
-      // Agregar teléfono al campo principal solo si no está vacío
-      if (formData.phone && formData.phone.trim()) {
-        signUpData.phone = formData.phone
-      }
-
-      const { data: authData, error: authError } = await supabase.auth.signUp(signUpData)
-
-      if (authError) {
-        // Si el error es por teléfono duplicado, mostrar mensaje específico
-        if (authError.message.includes('duplicate key value violates unique constraint "users_phone_key"')) {
-          setError(`Este número de teléfono (${formData.phone}) ya está registrado en el sistema. Por favor usa un número diferente.`)
-          return
-        } else if (authError.message.includes('User already registered')) {
-          setError('Este email ya está registrado. Intenta con otro email o inicia sesión.')
-          return
-        } else if (authError.code === 'over_email_send_rate_limit') {
-          setError('Límite de emails alcanzado. Por favor espera unos minutos antes de registrarte nuevamente.')
-          return
+      if (existingPending && existingPending.length > 0) {
+        const registration = existingPending[0]
+        if (registration.status === 'pending') {
+          setError(`Ya tienes un registro pendiente de aprobación enviado el ${new Date(registration.created_at).toLocaleDateString()}. Te contactaremos pronto.`)
+        } else if (registration.status === 'approved') {
+          setError('Tu registro ya fue aprobado. Puedes iniciar sesión en la aplicación.')
         } else {
-          setError('Error al crear usuario: ' + authError.message)
-          return
+          setError('Ya existe un registro con este email. Contacta soporte si tienes problemas.')
         }
-      }
-
-      if (!authData.user) {
-        setError('No se pudo crear el usuario')
         return
       }
 
-      // Esperar un momento para que la sesión se establezca completamente
-      await new Promise(resolve => setTimeout(resolve, 500))
+      // Limpiar el nombre del usuario para usarlo en la ruta
+      const cleanUserName = formData.fullName
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // Remover acentos
+        .replace(/[^a-z0-9]/g, '_') // Reemplazar caracteres especiales con _
+        .replace(/_+/g, '_') // Reemplazar múltiples _ con uno solo
+        .replace(/^_|_$/g, '') // Remover _ al inicio y final
 
-      let companyId = formData.companyId
-      if (isCreatingNewCompany && formData.companyName) {
-        
-        const { data: companyData, error: companyError } = await supabase
-          .from('companies')
-          .insert([{
-            name: formData.companyName,
-            email: formData.email
-          }])
-          .select()
-          .single()
-
-        if (companyError) {
-          setError('Error al crear la empresa: ' + companyError.message)
-          return
-        }
-
-        companyId = companyData.id.toString()
-      }
-
-      
-      // Obtener el nombre de la empresa
-      let companyName = null
-      if (companyId) {
-        if (isCreatingNewCompany) {
-          companyName = formData.companyName
-        } else {
-          const selectedCompany = companies.find(c => c.id.toString() === companyId)
-          companyName = selectedCompany?.name || null
-        }
-      }
-      
-      // Actualizar el perfil creado automáticamente por el trigger
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          email: formData.email,
+      // PRIMERO: Crear el registro en pending_registrations (sin archivos aún)
+      const { data: registrationData, error: registrationError } = await supabase
+        .from('pending_registrations')
+        .insert([{
+          email: formData.email.trim().toLowerCase(),
           full_name: formData.fullName,
-          phone: formData.phone,
+          phone: formData.phone || null,
           role: formData.role,
           language: formData.language,
-          company_id: companyId ? parseInt(companyId) : null,
-          company_name: companyName
-        })
-        .eq('auth_id', authData.user!.id)
+          company_name: isCreatingNewCompany ? formData.companyName : null,
+          company_id: formData.companyId ? parseInt(formData.companyId) : null,
+          is_creating_new_company: isCreatingNewCompany,
+          rut_number: formData.rut || null,
+          legal_documents: null, // Se actualizará después de subir archivos
+          selected_markets: selectedMarkets,
+          selected_certifications: [], // Importadores no tienen certificaciones
+          certification_files: null,
+          status: 'pending'
+        }])
         .select()
         .single()
 
-      if (profileError) {
-        console.error('❌ Profile creation error:', profileError)
-        if (profileError.message.includes('duplicate key value violates unique constraint "profiles_email_key"')) {
-          setError('Este email ya está registrado en el sistema. Por favor usa un email diferente.')
+      if (registrationError) {
+        console.error('❌ Registration error:', registrationError)
+        if (registrationError.code === '23505') {
+          setError('Este email ya tiene un registro pendiente o ya está registrado.')
         } else {
-          setError('Error al crear el perfil: ' + profileError.message)
+          setError('Error al crear el registro: ' + registrationError.message)
         }
         return
       }
 
-      const marketAssignments = selectedMarkets.map(marketId => ({
-        user_id: profileData.id,
-        market_id: marketId
-      }))
+      console.log('✅ Registration created successfully:', registrationData.id)
 
-      const { error: marketError } = await supabase
-        .from('user_markets')
-        .insert(marketAssignments)
-
-      if (marketError) {
-        console.error('❌ Market assignment error:', marketError)
-        setError('Error al asignar mercados: ' + marketError.message)
-        return
-      }
-
-      console.log('✅ Markets assigned')
-
-      // Iniciar sesión automáticamente después del registro exitoso
-      try {
-        const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
-          email: formData.email,
-          password: formData.password
-        })
-
-        if (loginError) {
-          console.error('❌ Auto-login error:', loginError)
-          alert(`Usuario creado exitosamente, pero hubo un error al iniciar sesión automáticamente: ${loginError.message}. Por favor inicia sesión manualmente.`)
-          router.push('/auth')
-          return
-        }
-
-        if (!loginData?.user) {
-          alert(`Usuario creado exitosamente, pero no se pudo obtener la información del usuario. Por favor inicia sesión manualmente.`)
-          router.push('/auth')
-          return
-        }
-
-        // Note: Profile loading would happen here if auth store exists
-        console.log('✅ User logged in successfully')
+      // SEGUNDO: Ahora subir documentos legales de cliente
+      const clientDocumentsData: Record<string, {
+        file_name: string;
+        file_path: string;
+        file_size: number;
+        uploaded_at: string;
+      }> = {}
+      if (Object.keys(clientDocumentFiles).length > 0) {
+        console.log('📋 Uploading client documents...')
         
-        // Pequeña pausa para asegurar que todo se establezca
-        await new Promise(resolve => setTimeout(resolve, 500))
-
-        // Upload client documents if any were selected
-        console.log('📤 Uploading client documents...')
-        const documentsToUpload = Object.entries(clientDocumentFiles).filter(([, file]) => file !== null)
-        
-        if (documentsToUpload.length > 0) {
-          try {
-            for (const [documentType, file] of documentsToUpload) {
-              if (!file) continue
-              
-              const fileExt = file.name.split('.').pop()
-              const fileName = `${profileData.id}_${documentType}_${Date.now()}.${fileExt}`
-              const filePath = `${profileData.id}/${fileName}`
-
-              console.log(`📤 Uploading ${documentType}:`, fileName)
-
-              const { data: uploadData, error: uploadError } = await supabase.storage
-                .from('client-documents')
-                .upload(filePath, file)
-
-              if (uploadError) {
-                console.error(`❌ Error uploading ${documentType}:`, uploadError)
-                // Don't halt registration for upload errors, just log them
-                continue
-              }
-
-              console.log(`✅ ${documentType} uploaded successfully:`, uploadData)
-
-              // Save document metadata to legal_documents_customer table
-              const documentData: {
-                user_id: string;
-                document_type: string;
-                file_name: string;
-                file_path: string;
-                file_size: number;
-                uploaded_at: string;
-                rut_number?: string;
-              } = {
-                user_id: profileData.id,
-                document_type: documentType,
+        for (const [documentType, file] of Object.entries(clientDocumentFiles)) {
+          if (file) {
+            const fileExtension = file.name.split('.').pop()
+            const fileName = `${cleanUserName}_${documentType}.${fileExtension}`
+            const filePath = `customers/${cleanUserName}/${fileName}`
+            
+            const { data: uploadData, error: uploadError } = await supabase.storage
+              .from('users-pending-registrations')
+              .upload(filePath, file, {
+                cacheControl: '3600',
+                upsert: false
+              })
+            
+            if (uploadError) {
+              console.error(`❌ Error uploading client document ${documentType}:`, uploadError)
+              setError(`Error al subir documento (${documentType}): ${uploadError.message}. Contacta a soporte si el problema persiste.`)
+              setIsLoading(false)
+              return
+            }
+            
+            if (uploadData) {
+              clientDocumentsData[documentType] = {
                 file_name: fileName,
-                file_path: filePath,
+                file_path: uploadData.path,
                 file_size: file.size,
                 uploaded_at: new Date().toISOString()
               }
-
-              // Add RUT number if it's a RUT document
-              if (documentType === 'rut' && formData.rut) {
-                documentData.rut_number = formData.rut
-              }
-
-              const { error: docError } = await supabase
-                .from('legal_documents_customer')
-                .upsert(documentData)
-
-              if (docError) {
-                console.error(`❌ Error saving ${documentType} metadata:`, docError)
-              } else {
-                console.log(`✅ ${documentType} metadata saved`)
-              }
             }
-            console.log('✅ All client documents processed')
-          } catch (uploadError) {
-            console.error('⚠️ Error in document upload process (registration still successful):', uploadError)
           }
         }
-        
-        // Enviar email de bienvenida
-        console.log('🎯 Iniciando proceso de envío de email de bienvenida...')
-        try {
-          const companyName = isCreatingNewCompany 
-            ? formData.companyName 
-            : companies.find(c => c.id.toString() === formData.companyId)?.name
-
-          const emailResult = await sendWelcomeEmail({
-            email: formData.email,
-            full_name: formData.fullName,
-            role: formData.role,
-            language: formData.language,
-            company_name: companyName
-          })
-
-          console.log('✅ Email result:', emailResult)
-        } catch (emailError) {
-          // El error ya se maneja en el hook, solo logueamos aquí
-          console.error('⚠️ Welcome email error (registration still successful):', emailError)
-        }
-        
-        alert(`¡Bienvenido! Tu cuenta ha sido creada exitosamente. ${formData.email ? 'Revisa tu email para más información.' : ''}`)
-        router.push(`${process.env.NEXT_PUBLIC_APP_URL}/auth`)
-      } catch (autoLoginError) {
-        console.error('💥 Auto-login catch error:', autoLoginError)
-        alert(`Usuario creado exitosamente, pero hubo un error inesperado al iniciar sesión automáticamente. Por favor inicia sesión manualmente.`)
-        router.push(`${process.env.NEXT_PUBLIC_APP_URL}/auth`)
-        return
       }
+
+      // TERCERO: Actualizar el registro con las rutas de los archivos
+      console.log('📝 Updating registration with file paths...')
+      const { error: updateError } = await supabase
+        .from('pending_registrations')
+        .update({
+          legal_documents: Object.keys(clientDocumentsData).length > 0 ? clientDocumentsData : null
+        })
+        .eq('id', registrationData.id)
+
+      if (updateError) {
+        console.error('❌ Error updating registration with file paths:', updateError)
+        // No retornamos aquí porque el registro ya existe, solo avisamos
+        console.warn('⚠️ El registro fue creado pero hubo un problema al guardar las rutas de archivos')
+      } else {
+        console.log('✅ Registration updated with file paths successfully')
+      }
+
+      alert(`¡Registro enviado exitosamente! 
+      
+Tu solicitud ha sido enviada para revisión. Te contactaremos en las próximas 24-48 horas para confirmar tu cuenta.
+
+ID de solicitud: ${registrationData.id.substring(0, 8)}`)
+      
+      // Limpiar formulario
+      setFormData({
+        fullName: '',
+        email: '',
+        phone: '',
+        role: 'customer',
+        language: 'es',
+        companyName: '',
+        companyId: '',
+        rut: ''
+      })
+      setSelectedMarkets([])
+      setClientDocumentFiles({})
+      setCurrentStep(1)
 
     } catch (err) {
       console.error('💥 Unexpected error:', err)
@@ -906,48 +727,6 @@ export default function RegisterImporterPage() {
                             <SelectItem value="en">🇺🇸 {t('form.english')}</SelectItem>
                           </SelectContent>
                         </Select>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Security in Grid */}
-                  <div className="space-y-3">
-                    <h3 className="text-base font-semibold text-gray-800 flex items-center">
-                      <Lock className="w-4 h-4 mr-2 text-green-600" />
-                      {t('form.credentials')}
-                    </h3>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <Label htmlFor="password" className="text-xs font-medium text-gray-700 block mb-1">
-                          {t('form.password')}
-                        </Label>
-                        <Input
-                          id="password"
-                          type="password"
-                          placeholder={t('form.passwordPlaceholder').toString()}
-                          required
-                          autoComplete="new-password"
-                          value={formData.password}
-                          onChange={(e) => handleInputChange('password', e.target.value)}
-                          className="h-10 border border-gray-300 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <Label htmlFor="confirmPassword" className="text-xs font-medium text-gray-700 block mb-1">
-                          {t('form.confirmPassword')}
-                        </Label>
-                        <Input
-                          id="confirmPassword"
-                          type="password"
-                          placeholder={t('form.confirmPasswordPlaceholder').toString()}
-                          required
-                          autoComplete="new-password"
-                          value={formData.confirmPassword}
-                          onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-                          className="h-10 border border-gray-300 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] text-sm"
-                        />
                       </div>
                     </div>
                   </div>

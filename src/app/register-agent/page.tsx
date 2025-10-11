@@ -12,7 +12,6 @@ import {
     SelectValue,
 } from '@/components/ui/select'
 import { useTranslation } from '@/hooks/useTranslation'
-import { useSendWelcomeEmail } from '@/hooks/useSendWelcomeEmail'
 import {
     ArrowRight,
     ArrowLeft,
@@ -22,7 +21,6 @@ import {
     Clock,
     FileCheck,
     Globe,
-    Lock,
     Package,
     Star,
     Target,
@@ -32,7 +30,6 @@ import {
     Zap
 } from 'lucide-react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import { createSupabaseClient } from '@/utils/supabase/client'
 
@@ -50,8 +47,6 @@ interface FormData {
   fullName: string
   email: string
   phone: string
-  password: string
-  confirmPassword: string
   role: string
   language: string
   companyName: string
@@ -64,7 +59,6 @@ interface FormData {
 
 export default function RegisterAgentPage() {
   const { t } = useTranslation()
-  const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [companies, setCompanies] = useState<Company[]>([])
@@ -76,14 +70,11 @@ export default function RegisterAgentPage() {
   const [legalDocumentFiles, setLegalDocumentFiles] = useState<{[key: string]: File | null}>({})
   const [isCreatingNewCompany, setIsCreatingNewCompany] = useState(false)
   const [currentStep, setCurrentStep] = useState<number>(1)
-  const { sendWelcomeEmail } = useSendWelcomeEmail()
 
   const [formData, setFormData] = useState<FormData>({
     fullName: '',
     email: '',
     phone: '',
-    password: '',
-    confirmPassword: '',
     role: 'agent', // Fixed role for agent registration
     language: 'es',
     companyName: '',
@@ -215,14 +206,6 @@ export default function RegisterAgentPage() {
       setError('El teléfono es requerido')
       return false
     }
-    if (!formData.password.trim()) {
-      setError('La contraseña es requerida')
-      return false
-    }
-    if (formData.password !== formData.confirmPassword) {
-      setError('Las contraseñas no coinciden')
-      return false
-    }
     if (selectedMarkets.length === 0) {
       setError('Debes seleccionar al menos un mercado')
       return false
@@ -304,16 +287,6 @@ export default function RegisterAgentPage() {
     }
 
     try {
-      if (formData.password !== formData.confirmPassword) {
-        setError('Las contraseñas no coinciden')
-        return
-      }
-
-      if (formData.password.length < 6) {
-        setError('La contraseña debe tener al menos 6 caracteres')
-        return
-      }
-
       if (!formData.role) {
         setError('Debe seleccionar un rol')
         return
@@ -367,301 +340,213 @@ export default function RegisterAgentPage() {
 
       console.log('✅ Email and phone are available for registration')
 
-      console.log('🔐 Creating auth user...')
-      // Intentar registrar con teléfono, pero si falla por duplicado, registrar sin teléfono en campo principal
-      const signUpData: {
-        email: string;
-        password: string;
-        phone?: string;
-        options: {
-          emailRedirectTo: string;
-          data: {
-            confirm: boolean;
-            full_name: string;
-            phone: string;
-          };
-        };
-      } = {
-        email: formData.email,
-        password: formData.password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth`,
-          data: {
-            confirm: false,
-            full_name: formData.fullName,
-            phone: formData.phone
-          }
-        }
-      }
+      // Verificar si ya existe un registro pendiente con este email
+      const { data: existingPending, error: pendingCheckError } = await supabase
+        .from('pending_registrations')
+        .select('email, status, created_at')
+        .eq('email', formData.email.trim().toLowerCase())
 
-      // Agregar teléfono al campo principal solo si no está vacío
-      if (formData.phone && formData.phone.trim()) {
-        signUpData.phone = formData.phone
-      }
-
-      const { data: authData, error: authError } = await supabase.auth.signUp(signUpData)
-
-      if (authError) {
-        console.error('❌ Auth creation error:', authError)
-        
-        // Si el error es por teléfono duplicado, mostrar mensaje específico
-        if (authError.message.includes('duplicate key value violates unique constraint "users_phone_key"')) {
-          setError(`Este número de teléfono (${formData.phone}) ya está registrado en el sistema. Por favor usa un número diferente.`)
-          return
-        } else if (authError.message.includes('User already registered')) {
-          setError('Este email ya está registrado. Intenta con otro email o inicia sesión.')
-          return
-        } else {
-          setError('Error al crear usuario: ' + authError.message)
-          return
-        }
-      }
-
-      if (!authData.user) {
-        setError('No se pudo crear el usuario')
+      if (pendingCheckError) {
+        console.error('❌ Error checking pending registrations:', pendingCheckError)
+        setError('Error al verificar registros pendientes. Por favor intenta nuevamente.')
         return
       }
 
-      console.log('✅ Auth user created:', authData.user.id)
-
-      // Esperar un momento para que la sesión se establezca completamente
-      await new Promise(resolve => setTimeout(resolve, 500))
-
-      let companyId = formData.companyId
-      if (isCreatingNewCompany && formData.companyName) {
-        console.log('🏢 Creating new company...')
-        
-        const { data: companyData, error: companyError } = await supabase
-          .from('companies')
-          .insert([{
-            name: formData.companyName,
-            email: formData.email
-          }])
-          .select()
-          .single()
-
-        if (companyError) {
-          console.error('❌ Company creation error:', companyError)
-          setError('Error al crear la empresa: ' + companyError.message)
-          return
-        }
-
-        companyId = companyData.id.toString()
-        console.log('✅ Company created:', companyId)
-      }
-
-      console.log('👤 Creating/updating user profile...')
-      
-      // Obtener el nombre de la empresa
-      let companyName = null
-      if (companyId) {
-        if (isCreatingNewCompany) {
-          companyName = formData.companyName
+      if (existingPending && existingPending.length > 0) {
+        const registration = existingPending[0]
+        if (registration.status === 'pending') {
+          setError(`Ya tienes un registro pendiente de aprobación enviado el ${new Date(registration.created_at).toLocaleDateString()}. Te contactaremos pronto.`)
+        } else if (registration.status === 'approved') {
+          setError('Tu registro ya fue aprobado. Puedes iniciar sesión en la aplicación.')
         } else {
-          const selectedCompany = companies.find(c => c.id.toString() === companyId)
-          companyName = selectedCompany?.name || null
+          setError('Ya existe un registro con este email. Contacta soporte si tienes problemas.')
         }
+        return
       }
-      
-      // Actualizar el perfil creado automáticamente por el trigger
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          email: formData.email,
+
+      console.log('🔐 Creating pending registration...')
+
+      // Limpiar el nombre del usuario para usarlo en la ruta de archivos
+      const cleanUserName = formData.fullName
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // Remover acentos
+        .replace(/[^a-z0-9]/g, '_') // Reemplazar caracteres especiales con _
+        .replace(/_+/g, '_') // Reemplazar múltiples _ con uno solo
+        .replace(/^_|_$/g, '') // Remover _ al inicio y final
+
+      // PRIMERO: Crear el registro en pending_registrations (sin archivos aún)
+      const { data: registrationData, error: registrationError } = await supabase
+        .from('pending_registrations')
+        .insert([{
+          email: formData.email.trim().toLowerCase(),
           full_name: formData.fullName,
-          phone: formData.phone,
+          phone: formData.phone || null,
           role: formData.role,
           language: formData.language,
-          company_id: companyId ? parseInt(companyId) : null,
-          company_name: companyName
-        })
-        .eq('auth_id', authData.user!.id)
+          company_name: isCreatingNewCompany ? formData.companyName : null,
+          company_id: formData.companyId ? parseInt(formData.companyId) : null,
+          is_creating_new_company: isCreatingNewCompany,
+          rut_number: formData.rut || null,
+          legal_documents: null, // Se actualizará después de subir archivos
+          selected_markets: selectedMarkets,
+          selected_certifications: selectedCertifications,
+          certification_files: null, // Se actualizará después de subir archivos
+          status: 'pending'
+        }])
         .select()
         .single()
 
-      if (profileError) {
-        console.error('❌ Profile creation error:', profileError)
-        setError('Error al crear el perfil: ' + profileError.message)
-        return
-      }
-
-      console.log('✅ Profile created:', profileData.id)
-
-      // Asignar certificaciones al usuario si hay certificaciones seleccionadas
-      if (selectedCertifications.length > 0) {
-        console.log('🎓 Assigning certifications...', selectedCertifications)
-        
-        // Primero insertar certificaciones sin archivos
-        const certificationAssignments = selectedCertifications.map(certificationId => ({
-          user_id: profileData.id,
-          certification_id: certificationId
-        }))
-
-        const { error: certificationsError } = await supabase
-          .from('user_certifications')
-          .insert(certificationAssignments)
-
-        if (certificationsError) {
-          console.error('❌ Error assigning certifications:', certificationsError)
+      if (registrationError) {
+        console.error('❌ Registration error:', registrationError)
+        if (registrationError.code === '23505') {
+          setError('Este email ya tiene un registro pendiente o ya está registrado.')
         } else {
-          console.log('✅ Certifications assigned')
+          setError('Error al crear el registro: ' + registrationError.message)
         }
-      }
-
-      console.log('🏢 Assigning markets...')
-      const marketAssignments = selectedMarkets.map(marketId => ({
-        user_id: profileData.id,
-        market_id: marketId
-      }))
-
-      const { error: marketError } = await supabase
-        .from('user_markets')
-        .insert(marketAssignments)
-
-      if (marketError) {
-        console.error('❌ Market assignment error:', marketError)
-        setError('Error al asignar mercados: ' + marketError.message)
         return
       }
 
-      console.log('✅ Markets assigned')
+      console.log('✅ Registration created successfully:', registrationData.id)
 
-      // Iniciar sesión automáticamente después del registro exitoso
-      try {
-        const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
-          email: formData.email,
-          password: formData.password
-        })
-
-        if (loginError) {
-          console.error('❌ Auto-login error:', loginError)
-          alert(`Usuario creado exitosamente, pero hubo un error al iniciar sesión automáticamente. Por favor inicia sesión manualmente.`)
-          router.push('https://app.logbid.co/auth')
-          return
-        }
-
-        if (!loginData?.user) {
-          alert(`Usuario creado exitosamente, pero no se pudo obtener la información del usuario. Por favor inicia sesión manualmente.`)
-          router.push('https://app.logbid.co/auth')
-          return
-        }
-
-        console.log('✅ User logged in successfully')
+      // SEGUNDO: Ahora subir los archivos de certificaciones
+      const certificationFilesData: Record<number, {
+        file_name: string;
+        file_path: string;
+        file_size: number;
+        uploaded_at: string;
+      }> = {}
+      
+      if (selectedCertifications.length > 0 && Object.keys(certificationFiles).length > 0) {
+        console.log('📄 Uploading certification files...')
         
-        // Subir archivos PDF después de estar autenticado
-        if (selectedCertifications.length > 0 && Object.keys(certificationFiles).length > 0) {
-          console.log('📄 Uploading certification PDFs after authentication...')
+        for (const certificationId of selectedCertifications) {
+          const file = certificationFiles[certificationId]
           
-          for (const certificationId of selectedCertifications) {
-            const file = certificationFiles[certificationId]
+          if (file) {
+            const fileExtension = file.name.split('.').pop()
+            const certificationName = certifications.find(c => c.id === certificationId)?.name || certificationId.toString()
+            const cleanCertName = certificationName
+              .toLowerCase()
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .replace(/[^a-z0-9]/g, '_')
+              .replace(/_+/g, '_')
+              .replace(/^_|_$/g, '')
+            const fileName = `${cleanUserName}_${cleanCertName}.${fileExtension}`
+            const filePath = `agents/${cleanUserName}/certifications_files/${fileName}`
             
-            if (file) {
-              console.log(`📄 Uploading PDF for certification ${certificationId}...`)
-              const fileExtension = file.name.split('.').pop()
-              const uniqueFileName = `${profileData.id}/${certificationId}_${Date.now()}.${fileExtension}`
-              
-              const { data: uploadData, error: uploadError } = await supabase.storage
-                .from('certifications')
-                .upload(uniqueFileName, file, {
-                  cacheControl: '3600',
-                  upsert: false
-                })
-              
-              if (uploadError) {
-                console.error(`❌ Error uploading PDF for certification ${certificationId}:`, uploadError)
-              } else {
-                // Actualizar el registro de certificación con la información del archivo
-                const { error: updateError } = await supabase
-                  .from('user_certifications')
-                  .update({
-                    pdf_file_name: file.name,
-                    pdf_file_path: uploadData.path,
-                    pdf_file_size: file.size,
-                    pdf_uploaded_at: new Date().toISOString()
-                  })
-                  .eq('user_id', profileData.id)
-                  .eq('certification_id', certificationId)
-                
-                if (updateError) {
-                  console.error(`❌ Error updating certification record:`, updateError)
-                } else {
-                  console.log(`✅ PDF uploaded and record updated for certification ${certificationId}`)
-                }
+            const { data: uploadData, error: uploadError } = await supabase.storage
+              .from('users-pending-registrations')
+              .upload(filePath, file, {
+                cacheControl: '3600',
+                upsert: false
+              })
+            
+            if (uploadError) {
+              console.error(`❌ Error uploading certification file for ID ${certificationId}:`, uploadError)
+              setError(`Error al subir certificado: ${uploadError.message}. Contacta a soporte si el problema persiste.`)
+              setIsLoading(false)
+              return
+            }
+            
+            if (uploadData) {
+              certificationFilesData[certificationId]= {
+                file_name: fileName,
+                file_path: uploadData.path,
+                file_size: file.size,
+                uploaded_at: new Date().toISOString()
               }
             }
           }
         }
-
-        // Subir documentos legales después de estar autenticado
-        if (Object.keys(legalDocumentFiles).length > 0) {
-          console.log('📋 Uploading legal documents after authentication...')
-          
-          for (const [documentType, file] of Object.entries(legalDocumentFiles)) {
-            if (file) {
-              console.log(`📋 Uploading ${documentType} document...`)
-              const fileExtension = file.name.split('.').pop()
-              const uniqueFileName = `${profileData.id}/${documentType}_${Date.now()}.${fileExtension}`
-              
-              const { data: uploadData, error: uploadError } = await supabase.storage
-                .from('legal-documents')
-                .upload(uniqueFileName, file, {
-                  cacheControl: '3600',
-                  upsert: false
-                })
-              
-              if (uploadError) {
-                console.error(`❌ Error uploading ${documentType} document:`, uploadError)
-              } else {
-                // Insertar o actualizar el registro del documento legal
-                const { error: insertError } = await supabase
-                  .from('legal_documents_agent')
-                  .upsert({
-                    user_id: profileData.id,
-                    document_type: documentType,
-                    rut_number: documentType === 'rut' ? formData.rut : null,
-                    file_name: file.name,
-                    file_path: uploadData.path,
-                    file_size: file.size,
-                    uploaded_at: new Date().toISOString()
-                  }, {
-                    onConflict: 'user_id,document_type'
-                  })
-                
-                if (insertError) {
-                  console.error(`❌ Error saving ${documentType} document record:`, insertError)
-                } else {
-                  console.log(`✅ ${documentType} document uploaded and saved successfully`)
-                }
-              }
-            }
-          }
-        }
-        
-        // Enviar email de bienvenida
-        try {
-          const companyName = isCreatingNewCompany 
-            ? formData.companyName 
-            : companies.find(c => c.id.toString() === formData.companyId)?.name
-
-          await sendWelcomeEmail({
-            email: formData.email,
-            full_name: formData.fullName,
-            role: formData.role,
-            language: formData.language,
-            company_name: companyName
-          })
-        } catch (emailError) {
-          console.error('⚠️ Welcome email error (registration still successful):', emailError)
-        }
-        
-        alert(`¡Bienvenido! Tu cuenta ha sido creada exitosamente.`)
-        router.push('https://app.logbid.co/auth')
-      } catch (autoLoginError) {
-        console.error('💥 Auto-login catch error:', autoLoginError)
-        alert(`Usuario creado exitosamente, pero hubo un error inesperado al iniciar sesión automáticamente. Por favor inicia sesión manualmente.`)
-        router.push('https://app.logbid.co/auth')
-        return
       }
+
+      // Subir documentos legales
+      const legalDocumentsData: Record<string, {
+        file_name: string;
+        file_path: string;
+        file_size: number;
+        uploaded_at: string;
+      }> = {}
+      if (Object.keys(legalDocumentFiles).length > 0) {
+        console.log('📋 Uploading legal documents...')
+        
+        for (const [documentType, file] of Object.entries(legalDocumentFiles)) {
+          if (file) {
+            const fileExtension = file.name.split('.').pop()
+            const fileName = `${cleanUserName}_${documentType}.${fileExtension}`
+            const filePath = `agents/${cleanUserName}/${fileName}`
+            
+            const { data: uploadData, error: uploadError } = await supabase.storage
+              .from('users-pending-registrations')
+              .upload(filePath, file, {
+                cacheControl: '3600',
+                upsert: false
+              })
+            
+            if (uploadError) {
+              console.error(`❌ Error uploading legal document ${documentType}:`, uploadError)
+              setError(`Error al subir documento legal (${documentType}): ${uploadError.message}. Contacta a soporte si el problema persiste.`)
+              setIsLoading(false)
+              return
+            }
+            
+            if (uploadData) {
+              legalDocumentsData[documentType] = {
+                file_name: fileName,
+                file_path: uploadData.path,
+                file_size: file.size,
+                uploaded_at: new Date().toISOString()
+              }
+            }
+          }
+        }
+      }
+
+      // TERCERO: Actualizar el registro con las rutas de los archivos
+      console.log('📝 Updating registration with file paths...')
+      const { error: updateError } = await supabase
+        .from('pending_registrations')
+        .update({
+          legal_documents: Object.keys(legalDocumentsData).length > 0 ? legalDocumentsData : null,
+          certification_files: Object.keys(certificationFilesData).length > 0 ? certificationFilesData : null
+        })
+        .eq('id', registrationData.id)
+
+      if (updateError) {
+        console.error('❌ Error updating registration with file paths:', updateError)
+        // No retornamos aquí porque el registro ya existe, solo avisamos
+        console.warn('⚠️ El registro fue creado pero hubo un problema al guardar las rutas de archivos')
+      } else {
+        console.log('✅ Registration updated with file paths successfully')
+      }
+
+      alert(`¡Registro enviado exitosamente! 
+      
+Tu solicitud ha sido enviada para revisión. Te contactaremos en las próximas 24-48 horas para confirmar tu cuenta.
+
+ID de solicitud: ${registrationData.id.substring(0, 8)}`)
+      
+      // Limpiar formulario
+      setFormData({
+        fullName: '',
+        email: '',
+        phone: '',
+        role: 'agent',
+        language: 'es',
+        companyName: '',
+        companyId: '',
+        rut: '',
+        camaraComercioNumber: '',
+        camaraComercioDate: '',
+        cedulaRepresentanteLegal: ''
+      })
+      setSelectedMarkets([])
+      setSelectedCertifications([])
+      setCertificationFiles({})
+      setLegalDocumentFiles({})
+      setCurrentStep(1)
 
     } catch (err) {
       console.error('💥 Unexpected error:', err)
@@ -1011,48 +896,6 @@ export default function RegisterAgentPage() {
                             <SelectItem value="en">🇺🇸 {t('form.english')}</SelectItem>
                           </SelectContent>
                         </Select>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Security in Grid */}
-                  <div className="space-y-3">
-                    <h3 className="text-base font-semibold text-gray-800 flex items-center">
-                      <Lock className="w-4 h-4 mr-2 text-green-600" />
-                      {t('form.credentials')}
-                    </h3>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <Label htmlFor="password" className="text-xs font-medium text-gray-700 block mb-1">
-                          {t('form.password')}
-                        </Label>
-                        <Input
-                          id="password"
-                          type="password"
-                          placeholder={t('form.passwordPlaceholder').toString()}
-                          required
-                          autoComplete="new-password"
-                          value={formData.password}
-                          onChange={(e) => handleInputChange('password', e.target.value)}
-                          className="h-10 border border-gray-300 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <Label htmlFor="confirmPassword" className="text-xs font-medium text-gray-700 block mb-1">
-                          {t('form.confirmPassword')}
-                        </Label>
-                        <Input
-                          id="confirmPassword"
-                          type="password"
-                          placeholder={t('form.confirmPasswordPlaceholder').toString()}
-                          required
-                          autoComplete="new-password"
-                          value={formData.confirmPassword}
-                          onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-                          className="h-10 border border-gray-300 focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a] text-sm"
-                        />
                       </div>
                     </div>
                   </div>
